@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
 
 // Register ChartJS components
@@ -11,6 +12,7 @@ import Header from '../components/Header';
 import LogUpload from '../components/LogUpload';
 import AnalysisTabs from '../components/AnalysisTabs';
 import TimeFilter from '../components/TimeFilter';
+import Footer from '../components/Footer';
 import OverviewTab from '../components/tabs/OverviewTab';
 import UsersTab from '../components/tabs/UsersTab';
 import RequestsTab from '../components/tabs/RequestsTab';
@@ -29,45 +31,132 @@ export default function Home() {
   const [timeFilter, setTimeFilter] = useState('all'); // 'all', 'last24h', 'last7d', 'last30d'
   const [previousFiles, setPreviousFiles] = useState([]);
 
-  // Load previous files from localStorage on component mount
+  // Refs for managing animations and transitions
+  const initialLoadComplete = useRef(false);
+  const darkModeTransition = useRef(null);
+
+  // Load previous files from localStorage and set up dark mode on component mount
   useEffect(() => {
-    const storedFiles = localStorage.getItem('previousFiles');
-    if (storedFiles) {
-      try {
+    // Smooth page entrance
+    document.body.style.opacity = '1';
+    document.body.style.transition = 'opacity 0.5s ease-in-out';
+    
+    // Load previous files with error handling
+    try {
+      const storedFiles = localStorage.getItem('previousFiles');
+      if (storedFiles) {
         setPreviousFiles(JSON.parse(storedFiles));
-      } catch (e) {
-        console.error('Error parsing stored files:', e);
+      }
+    } catch (e) {
+      console.error('Error loading stored files:', e);
+      // Silently recover - don't disrupt user experience for this non-critical feature
+    }
+    
+    // Set dark mode with enhanced preference detection
+    const configureTheme = () => {
+      try {
+        const savedDarkMode = localStorage.getItem('darkMode');
+        
+        if (savedDarkMode !== null) {
+          setIsDarkMode(savedDarkMode === 'true');
+        } else {
+          // Check system preference with more reliable detection
+          const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+          setIsDarkMode(prefersDark.matches);
+          
+          // Listen for system theme changes
+          prefersDark.addEventListener('change', (e) => {
+            if (!localStorage.getItem('darkMode')) { // Only update if user hasn't set a preference
+              setIsDarkMode(e.matches);
+              applyTheme(e.matches);
+            }
+          });
+        }
+      } catch (err) {
+        console.error('Error setting theme preference:', err);
+        // Default to light mode if there's an issue
+        setIsDarkMode(false);
+      }
+    };
+    
+    // Apply theme with smooth transitions
+    const applyTheme = (isDark) => {
+      if (isDark) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+      
+      // Add subtle animation for background color transition
+      clearTimeout(darkModeTransition.current);
+      darkModeTransition.current = setTimeout(() => {
+        initialLoadComplete.current = true;
+      }, 300);
+    };
+    
+    configureTheme();
+    applyTheme(isDarkMode);
+    
+    return () => {
+      // Cleanup event listeners on unmount
+      try {
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+        prefersDark.removeEventListener('change', applyTheme);
+      } catch (err) {
+        // Ignore errors during cleanup
+      }
+    };
+  }, []);  // Empty dependency array for mounting only
+  
+  // Effect to handle theme changes
+  useEffect(() => {
+    if (initialLoadComplete.current) {
+      // Apply dark mode to document with transition animation
+      if (isDarkMode) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
       }
     }
-    
-    // Set dark mode based on user preference or system preference
-    const savedDarkMode = localStorage.getItem('darkMode');
-    if (savedDarkMode !== null) {
-      setIsDarkMode(savedDarkMode === 'true');
-    } else {
-      // Check system preference
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      setIsDarkMode(prefersDark);
-    }
-    
-    // Apply dark mode to document
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, []);
+  }, [isDarkMode]);
 
-  // Toggle dark mode
+  // Toggle dark mode with enhanced animations
   const toggleDarkMode = () => {
+    // Create a smooth flash effect for theme transition
+    const flash = document.createElement('div');
+    flash.style.position = 'fixed';
+    flash.style.top = '0';
+    flash.style.left = '0';
+    flash.style.width = '100%';
+    flash.style.height = '100%';
+    flash.style.backgroundColor = isDarkMode ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)';
+    flash.style.zIndex = '9999';
+    flash.style.pointerEvents = 'none';
+    flash.style.opacity = '0';
+    flash.style.transition = 'opacity 0.2s ease-in-out';
+    document.body.appendChild(flash);
+    
+    // Trigger flash animation
+    setTimeout(() => {
+      flash.style.opacity = '1';
+      setTimeout(() => {
+        flash.style.opacity = '0';
+        setTimeout(() => {
+          document.body.removeChild(flash);
+        }, 200);
+      }, 100);
+    }, 0);
+    
+    // Toggle the theme state
     const newDarkMode = !isDarkMode;
     setIsDarkMode(newDarkMode);
-    localStorage.setItem('darkMode', newDarkMode.toString());
     
-    if (newDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+    // Save preference to localStorage with enhanced error handling
+    try {
+      localStorage.setItem('darkMode', newDarkMode.toString());
+    } catch (err) {
+      console.error('Could not save theme preference', err);
+      // Continue with theme change even if saving fails
     }
   };
 
@@ -385,103 +474,308 @@ export default function Home() {
     };
   };
 
+  // Animation variants for staggered animations
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1,
+        delayChildren: 0.2,
+      }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { y: 20, opacity: 0 },
+    visible: { 
+      y: 0, 
+      opacity: 1,
+      transition: { type: 'spring', stiffness: 260, damping: 20 } 
+    }
+  };
+
+  // Animation for tab content
+  const tabContentVariants = {
+    hidden: { opacity: 0, x: -5 },
+    visible: { 
+      opacity: 1, 
+      x: 0,
+      transition: { duration: 0.3, ease: 'easeOut' } 
+    },
+    exit: { 
+      opacity: 0, 
+      x: 5,
+      transition: { duration: 0.2 } 
+    }
+  };
+  
   return (
-    <div className={`min-h-screen ${isDarkMode ? 'dark bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'} transition-colors duration-200`}>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <motion.div 
+      className={`min-h-screen relative ${isDarkMode ? 'dark bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.5 }}
+      style={{ 
+        backgroundImage: isDarkMode 
+          ? 'radial-gradient(circle at 100% 0%, rgba(78, 63, 146, 0.03) 0%, transparent 50%), radial-gradient(circle at 0% 100%, rgba(78, 63, 146, 0.03) 0%, transparent 50%)'
+          : 'radial-gradient(circle at 100% 0%, rgba(79, 70, 229, 0.03) 0%, transparent 50%), radial-gradient(circle at 0% 100%, rgba(79, 70, 229, 0.03) 0%, transparent 50%)'
+      }}
+    >
+      {/* Decorative blobs - subtle background elements */}
+      <div className="fixed top-0 right-0 w-1/4 h-1/4 bg-gradient-to-br from-indigo-500/5 to-purple-600/5 rounded-full filter blur-3xl transform translate-x-1/4 -translate-y-1/4"></div>
+      <div className="fixed bottom-0 left-0 w-1/4 h-1/4 bg-gradient-to-br from-purple-500/5 to-indigo-600/5 rounded-full filter blur-3xl transform -translate-x-1/4 translate-y-1/4"></div>
+      
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8 relative z-10">
         {/* Header */}
-        <Header isDarkMode={isDarkMode} toggleDarkMode={toggleDarkMode} />
+        <motion.div
+          initial={{ y: -20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+        >
+          <Header isDarkMode={isDarkMode} toggleDarkMode={toggleDarkMode} />
+        </motion.div>
 
         {/* Main Content */}
-        <main className="grid grid-cols-1 gap-8">
+        <motion.main 
+          className="grid grid-cols-1 gap-8 mt-6"
+          variants={containerVariants}
+          initial="hidden"
+          animate="visible"
+        >
           {/* Top Panel - Log Input */}
-          <LogUpload 
-            file={file} 
-            handleUpload={handleUpload} 
-            isUploading={isUploading} 
-            error={error} 
-            setFile={setFile} 
-            previousFiles={previousFiles} 
-            handlePreviousFileSelect={handlePreviousFileSelect} 
-            handleRemoveRecentFile={handleRemoveRecentFile}
-          />
+          <motion.div variants={itemVariants}>
+            <LogUpload 
+              file={file} 
+              handleUpload={handleUpload} 
+              isUploading={isUploading} 
+              error={error} 
+              setFile={setFile} 
+              previousFiles={previousFiles} 
+              handlePreviousFileSelect={handlePreviousFileSelect} 
+              handleRemoveRecentFile={handleRemoveRecentFile}
+            />
+          </motion.div>
 
-          {/* Bottom Panel - Results */}
-          {result && (
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-semibold mb-6 text-gray-800 dark:text-gray-200">Analysis Results</h2>
-              
-              {/* Time filter */}
-              <TimeFilter 
-                timeFilter={timeFilter} 
-                setTimeFilter={setTimeFilter} 
-                timeSpan={result.timeSpan} 
-              />
-              
-              {/* Analysis Tabs */}
-              <AnalysisTabs 
-                analysisTab={analysisTab} 
-                setAnalysisTab={setAnalysisTab} 
-              />
-              
-              {/* Tab Content */}
-              {analysisTab === 'overview' && (
-                <OverviewTab 
-                  result={result} 
-                  formatDuration={formatDuration} 
-                  prepareStatusChartData={prepareStatusChartData} 
-                  prepareStatusCodeRatioChartData={prepareStatusCodeRatioChartData} 
-                  isDarkMode={isDarkMode} 
-                />
-              )}
-              
-              {analysisTab === 'requests' && (
-                <RequestsTab 
-                  result={result} 
-                  prepareUrlChartData={prepareUrlChartData} 
-                  prepareUrlGroupsChartData={prepareUrlGroupsChartData} 
-                  prepareHourlyActivityChartData={prepareHourlyActivityChartData} 
-                  isDarkMode={isDarkMode} 
-                />
-              )}
-              
-              {analysisTab === 'users' && result.topUsers && result.topUsers.length > 0 && (
-                <UsersTab 
-                  result={result} 
-                  prepareUserChartData={prepareUserChartData} 
-                  isDarkMode={isDarkMode} 
-                />
-              )}
-              
-              {analysisTab === 'performance' && (
-                <PerformanceTab 
-                  result={result} 
-                  prepareResponseTimeDistributionChartData={prepareResponseTimeDistributionChartData} 
-                  isDarkMode={isDarkMode} 
-                />
-              )}
-            </div>
-          )}
-          
-          {!result && (
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-              <div className="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <p className="text-lg">Upload a log file to see analysis results</p>
-                <p className="mt-2 max-w-md text-center text-sm">
-                  The analyzer supports both custom log formats and standard Apache/Nginx formats
-                </p>
-              </div>
-            </div>
-          )}
-        </main>
+          {/* Bottom Panel - Results - Animate presence for smooth transitions */}
+          <AnimatePresence mode="wait">
+            {result ? (
+              <motion.div 
+                key="results"
+                variants={itemVariants}
+                className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 p-6 overflow-hidden relative"
+                initial={{ opacity: 0, y: 40 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ 
+                  type: "spring", 
+                  stiffness: 260, 
+                  damping: 20, 
+                  delay: 0.2 
+                }}
+              >
+                {/* Subtle gradient overlay */}
+                <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/30 to-purple-50/30 dark:from-indigo-900/10 dark:to-purple-900/10 -z-10"></div>
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                >
+                  <div className="flex items-center mb-6">
+                    <div className="relative mr-3 flex-shrink-0 w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg shadow-md flex items-center justify-center">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M3 3a1 1 0 000 2h10a1 1 0 100-2H3zm0 4a1 1 0 000 2h6a1 1 0 100-2H3zm0 4a1 1 0 100 2h10a1 1 0 100-2H3z" clipRule="evenodd" />
+                      </svg>
+                      <div className="absolute -right-1 -top-1 bg-green-500 w-3 h-3 rounded-full border-2 border-white dark:border-gray-800"></div>
+                    </div>
+                    <h2 className="text-xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-300 dark:to-purple-300">
+                      Analysis Results
+                    </h2>
+                  </div>
+                  
+                  {/* Time filter with animation */}
+                  <TimeFilter 
+                    timeFilter={timeFilter} 
+                    setTimeFilter={setTimeFilter} 
+                    timeSpan={result.timeSpan} 
+                  />
+                  
+                  {/* Analysis Tabs */}
+                  <AnalysisTabs 
+                    analysisTab={analysisTab} 
+                    setAnalysisTab={setAnalysisTab} 
+                  />
+                  
+                  {/* Tab Content with AnimatePresence for smooth tab transitions */}
+                  <div className="relative">
+                    <AnimatePresence mode="wait">
+                      {analysisTab === 'overview' && (
+                        <motion.div
+                          key="overview"
+                          variants={tabContentVariants}
+                          initial="hidden"
+                          animate="visible"
+                          exit="exit"
+                        >
+                          <OverviewTab 
+                            result={result} 
+                            formatDuration={formatDuration} 
+                            prepareStatusChartData={prepareStatusChartData} 
+                            prepareStatusCodeRatioChartData={prepareStatusCodeRatioChartData} 
+                            isDarkMode={isDarkMode} 
+                          />
+                        </motion.div>
+                      )}
+                      
+                      {analysisTab === 'requests' && (
+                        <motion.div
+                          key="requests"
+                          variants={tabContentVariants}
+                          initial="hidden"
+                          animate="visible"
+                          exit="exit"
+                        >
+                          <RequestsTab 
+                            result={result} 
+                            prepareUrlChartData={prepareUrlChartData} 
+                            prepareUrlGroupsChartData={prepareUrlGroupsChartData} 
+                            prepareHourlyActivityChartData={prepareHourlyActivityChartData} 
+                            isDarkMode={isDarkMode} 
+                          />
+                        </motion.div>
+                      )}
+                      
+                      {analysisTab === 'users' && result.topUsers && result.topUsers.length > 0 && (
+                        <motion.div
+                          key="users"
+                          variants={tabContentVariants}
+                          initial="hidden"
+                          animate="visible"
+                          exit="exit"
+                        >
+                          <UsersTab 
+                            result={result} 
+                            prepareUserChartData={prepareUserChartData} 
+                            isDarkMode={isDarkMode} 
+                          />
+                        </motion.div>
+                      )}
+                      
+                      {analysisTab === 'performance' && (
+                        <motion.div
+                          key="performance"
+                          variants={tabContentVariants}
+                          initial="hidden"
+                          animate="visible"
+                          exit="exit"
+                        >
+                          <PerformanceTab 
+                            result={result} 
+                            prepareResponseTimeDistributionChartData={prepareResponseTimeDistributionChartData} 
+                            isDarkMode={isDarkMode} 
+                          />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </motion.div>
+              </motion.div>
+            ) : (
+              <motion.div 
+                key="empty-state"
+                variants={itemVariants}
+                className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 p-6 overflow-hidden"
+                initial={{ opacity: 0, y: 40 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ 
+                  type: "spring", 
+                  stiffness: 260, 
+                  damping: 20, 
+                  delay: 0.2 
+                }}
+              >
+                {/* Subtle gradient overlay */}
+                <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/30 to-purple-50/30 dark:from-indigo-900/10 dark:to-purple-900/10 -z-10"></div>
+                
+                <motion.div 
+                  className="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3, duration: 0.5 }}
+                >
+                  <motion.div
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ delay: 0.5, type: "spring", stiffness: 200 }}
+                    className="relative mb-6"
+                  >
+                    <div className="absolute inset-0 bg-indigo-500/20 dark:bg-indigo-600/20 rounded-full blur-xl transform -translate-y-1 scale-90"></div>
+                    <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full p-5 shadow-lg relative">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                  </motion.div>
+                  
+                  <motion.p 
+                    className="text-xl font-medium text-gray-700 dark:text-gray-200"
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.7 }}
+                  >
+                    Upload a log file to see analysis results
+                  </motion.p>
+                  
+                  <motion.p 
+                    className="mt-3 max-w-md text-center text-sm text-gray-500 dark:text-gray-400"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 0.8 }}
+                    transition={{ delay: 0.9 }}
+                  >
+                    The analyzer supports both custom log formats and standard Apache/Nginx formats
+                  </motion.p>
+                  
+                  <motion.div 
+                    className="mt-6 flex flex-wrap justify-center gap-3"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 1 }}
+                  >
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                      Apache
+                    </div>
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                      Nginx
+                    </div>
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M3 12v3c0 1.657 3.134 3 7 3s7-1.343 7-3v-3c0 1.657-3.134 3-7 3s-7-1.343-7-3z" />
+                        <path d="M3 7v3c0 1.657 3.134 3 7 3s7-1.343 7-3V7c0 1.657-3.134 3-7 3S3 8.657 3 7z" />
+                        <path d="M17 5c0 1.657-3.134 3-7 3S3 6.657 3 5s3.134-3 7-3 7 1.343 7 3z" />
+                      </svg>
+                      Custom Formats
+                    </div>
+                  </motion.div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.main>
         
         {/* Footer */}
-        <footer className="mt-12 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
-          <p>Log Analyzer &copy; {new Date().getFullYear()} - Built with Next.js</p>
-        </footer>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1, duration: 0.5 }}
+        >
+          <Footer />
+        </motion.div>
       </div>
-    </div>
+    </motion.div>
   );
 }
